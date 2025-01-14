@@ -81,7 +81,214 @@ def calc_mips(
         w_x_c = pi_c[np.arange(num_data), c] / pi_0_c[np.arange(num_data), c]
 
         return np.clip((w_x_c * r).mean(), min_value, max_value)
+    
+def calc_new_dr(dataset:dict, pi:np.ndarray, q1_hat:np.ndarray, q0_hat:np.ndarray) ->float:
+    """
+    IPS推定量
 
+    Args:
+        dataset (dict): _description_
+        pi (np.ndarray): _description_
+
+    Returns:
+        float: _description_
+    """
+    
+    pi_0 = dataset["pi_0"]
+    
+    ones = np.ones((dataset["num_data"],dataset["num_actions"]))
+    a = dataset["a_mat"]
+    not_a = ones-dataset["a_mat"]
+    
+    #r_a_1にかかるウエイトと，r_a_0にかかるウエイトを作成
+    
+    
+    w_ips_1 = (pi*a) / (pi_0*a)  # n×|A|
+    w_ips_0 =  (pi*not_a) / ((ones*not_a)-(pi_0*not_a)) # n×|A|
+    
+    w_ips_1 = np.nan_to_num(w_ips_1,nan=0)
+    w_ips_0 = np.nan_to_num(w_ips_0, nan=0)
+    
+    dr =(dataset["r_mat"]-q1_hat*a)*w_ips_1 - (dataset["r_mat"]-q0_hat*not_a)*w_ips_0
+    
+    dr += (pi * (q1_hat - q0_hat))
+    
+    return dr.sum(1).mean()
+    
+    
+    
+    
+def calc_new_ips_compe(dataset:dict, pi:np.ndarray) ->float:
+    """
+    IPS推定量
+
+    Args:
+        dataset (dict): _description_
+        pi (np.ndarray): _description_
+
+    Returns:
+        float: _description_
+    """
+    
+    pi_0 = dataset["pi_0"]
+    
+    ones = np.ones((dataset["num_data"],dataset["num_actions"]))
+    a = dataset["a_mat"]
+    not_a = ones-dataset["a_mat"]
+    
+    
+    #r_a_1にかかるウエイトと，r_a_0にかかるウエイトを作成
+    w_1 = pi*a / pi_0*a  # n×|A|
+    w_0 = ((pi*not_a)) / ((ones*not_a)-(pi_0*not_a)) # n×|A|
+    
+    w_1 = np.nan_to_num(w_1,nan=0)
+    w_0 = np.nan_to_num(w_0, nan=0)
+    
+    return (dataset["r_mat"]*w_1 - dataset["r_mat"]*w_0).sum(1).mean()
+    
+def calc_new_ips(dataset:dict, pi:np.ndarray) ->float:
+    """
+    IPS推定量
+
+    Args:
+        dataset (dict): _description_
+        pi (np.ndarray): _description_
+
+    Returns:
+        float: _description_
+    """
+    
+    pi_0 = dataset["pi_0"]
+    
+    r_mat = dataset["r_mat"]
+    a_mat = dataset["a_mat"]
+    not_a_mat = 1 - a_mat
+    
+    
+    #r_a_1にかかるウエイトと，r_a_0にかかるウエイトを作成
+    w_1 = (pi*a_mat) / pi_0  # n×|A|
+    w_0 = (pi*not_a_mat)/ (1-pi_0) # n×|A|
+    
+    temp1 = (r_mat * w_1).sum(1)
+    temp2 = (r_mat * w_0).sum(1)
+    
+    return (temp1 - temp2).mean()
+
+def calc_new_mips(
+    dataset: dict,
+    pi: np.ndarray,
+    replace_c: int = 0,
+    is_estimate_w: bool = False,
+) -> float:
+    """MIPS推定量を実行する."""
+    num_data = dataset["num_data"]
+    num_actions, num_clusters = dataset["num_actions"], dataset["num_clusters"]
+    x, a, c, r = dataset["x"], dataset["a"], copy(dataset["c"]), dataset["r"]
+    pi_0, phi_a = dataset["pi_0"], copy(dataset["phi_a"])
+    min_value, max_value = r.min(), r.max()
+    a_mat, r_mat = dataset["a_mat"], dataset["r_mat"]
+    c_mat = dataset["c_mat"]
+    not_c_mat = 1 - c_mat
+    a_not_mat = 1 - a_mat
+
+    if replace_c > 0:
+        c[c >= num_clusters - replace_c] = num_clusters - replace_c - 1
+        phi_a[phi_a >= num_clusters - replace_c] = num_clusters - replace_c - 1
+
+    if is_estimate_w:
+        x_c = np.c_[x, np.eye(num_clusters)[c]]
+        pi_a_x_c_model = LogisticRegression(C=5, random_state=12345)
+        pi_a_x_c_model.fit(x_c, a)
+
+        w_x_a_full = pi / pi_0
+        pi_a_x_c_hat = np.zeros((num_data, num_actions))
+        pi_a_x_c_hat[:, np.unique(a)] = pi_a_x_c_model.predict_proba(x_c)
+        w_x_c_hat = (pi_a_x_c_hat * w_x_a_full).sum(1)
+
+        return np.clip((w_x_c_hat * r).mean(), min_value, max_value)
+
+    else:
+        pi_0_c = np.zeros((num_data, num_clusters - replace_c))
+        pi_c = np.zeros((num_data, num_clusters - replace_c))
+        r_c_mat = np.zeros((num_data, num_clusters ))
+        pi_0_c_2 = np.zeros((num_data, num_clusters - replace_c))
+        for c_ in range(num_clusters - replace_c):
+            pi_0_c[:, c_] = pi_0[:, phi_a == c_].sum(1)
+            pi_0_c_2[:, c_] = (1-pi_0)[:, phi_a == c_].sum(1)
+            pi_c[:, c_] = pi[:, phi_a == c_].sum(1)
+            r_c_mat[:,c_] = r_mat[:,phi_a == c_].sum(1)
+
+        # 周辺重要度重み
+        w_x_c_1 = (pi_c*c_mat)/pi_0_c
+        #w_x_c_0 = ( pi_c* not_c_mat)/ (1 - pi_0_c)
+        w_x_c_0 = pi_c / pi_0_c_2
+        
+        #w_x_c = pi_c[np.arange(num_data), c] / pi_0_c[np.arange(num_data), c]
+        
+        
+        temp1 = w_x_c_1.sum(1) * r
+        #temp2 = (w_x_c_0*r_c_mat).sum(1)
+        temp2 = np.zeros(num_data)
+        r_not_mat = r_mat * a_not_mat
+        for i in range(num_data):
+            for a in range(num_actions):
+                reward = r_not_mat[i,a] 
+                temp2[i] += w_x_c_0[i,phi_a[a]] * reward
+        
+        return (temp1-temp2).mean()
+    
+
+def calc_new_mips_takashi3(
+    dataset: dict, 
+    pi: np.ndarray,
+) -> float:
+    
+    num_data = dataset["num_data"]
+    num_actions, num_clusters = dataset["num_actions"], dataset["num_clusters"]
+    x, a, c, r = dataset["x"], dataset["a"], dataset["c"], dataset["r"]
+    pi_0, phi_a = dataset["pi_0"], dataset["phi_a"]
+    min_value, max_value = r.min(), r.max()
+    # actionしない行動確率を定義
+    a_mat, r_mat = dataset["a_mat"], dataset["r_mat"]
+    c_mat = dataset["c_mat"]
+    not_c_mat = 1 - c_mat
+
+    # p(e|a,x)=1としている
+    pi_0_c = np.zeros((num_data, num_clusters))
+    pi_c = np.zeros((num_data, num_clusters))
+    r_c_mat = np.zeros((num_data, num_clusters))
+        
+    for c_ in range(num_clusters):
+        pi_0_c[:, c_] = pi_0[:, phi_a == c_].sum(1)
+        pi_c[:, c_] = pi[:, phi_a == c_].sum(1)
+        r_c_mat[:, c_] = r_mat[:, phi_a == c_].sum(1)
+           
+    # (1) π(e_i|x_i) / π_0(e_i|x_i) * r_i(e_i, 0)
+    # w_x_c_1 = pi_c[np.arange(num_data), c] / pi_0_c[np.arange(num_data), c]
+    
+    w_x_c_1 = (pi_c * c_mat) / pi_0_c
+        
+    w_x_c_0 = pi_c / pi_0_c
+    # nanを０に変更
+    w_x_c_1 = np.nan_to_num(w_x_c_1, nan=0)
+    w_x_c_0 = np.nan_to_num(w_x_c_0, nan=0)
+         
+    temp1 = w_x_c_1.sum(1) * r 
+    
+    # 各データポイントが属するクラスターのみからrを引く
+    # 1. r_c_matをコピーして変更を加える
+    r_c_mat_modified = r_c_mat.copy()
+    
+    # 2. データポイントiが属するクラスターc[i]からr[i]を引く
+    # np.arange(num_data) は各データポイントのインデックスを表す
+    # cは各データポイントのクラスターインデックスを表す
+    r_c_mat_modified[np.arange(num_data), c] -= r
+    
+    # 3. temp2を計算
+    temp2 = w_x_c_0 * r_c_mat_modified
+    
+    # print(f"temp2:{temp2[0]}")
+    return (temp1 - temp2.sum(1)).mean()
 
 def calc_offcem(
     dataset: dict,
