@@ -331,7 +331,7 @@ def generate_synthetic_data4(
             sigmoid((x - x ** 2) @ theta_g_1 + (x ** 3 + x ** 2 - x) @ M_g_1 @ one_hot_c + b_g_1
         ) )
     h_x_a_1 = (
-            ((x ** 3 + x ** 2 - x) @ theta_h_1 + (x - x ** 2) @ M_h_1 @ one_hot_a + b_h_1
+            sigmoid((x ** 3 + x ** 2 - x) @ theta_h_1 + (x - x ** 2) @ M_h_1 @ one_hot_a + b_h_1
         ) )
     q_x_a_1 = (1 - lambda1_) * g_x_c_1[:, phi_a] + lambda1_ * h_x_a_1
 
@@ -340,8 +340,8 @@ def generate_synthetic_data4(
             sigmoid((x - x ** 2) @ theta_g_0 + (x ** 3 + x ** 2 - x) @ M_g_0 @ one_hot_c + b_g_0
         ) )
     h_x_a_0 = (
-            (x ** 3 + x ** 2 - x) @ theta_h_0 + (x - x ** 2) @ M_h_0 @ one_hot_a + b_h_0
-        ) 
+           sigmoid( (x ** 3 + x ** 2 - x) @ theta_h_0 + (x - x ** 2) @ M_h_0 @ one_hot_a + b_h_0
+        ) )
     q_x_a_0 = (1 - lambda0_) * g_x_c_0[:, phi_a] + lambda0_ * h_x_a_0
 
     #期待報酬関数の差をCATEとして定義
